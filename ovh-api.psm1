@@ -40,10 +40,13 @@ Get-OvhApi /dedicated/server | %{ get-OvhApi /dedicated/server/$_ } | select nam
 
 #>
 
-# FIXME : conditional
-# Powershell 2 needs an external json converter
-import-module ./ConvertFrom-JSON.psm1
 # Powershell V3 has its own ConvertFrom-JSON
+# Powershell 2 needs an external json converter
+if -not (Get-Command ConvertFrom-JSON -errorAction SilentlyContinue)
+{
+    import-module ./ConvertFrom-JSON.psm1
+}
+
 
 # Application Key
 [string] $ak = $null
@@ -201,12 +204,12 @@ function Invoke-OvhApi {
         if ($rs) {
             $rs.Close()
         }
-        if ($Rep) {
-            if ($raw) {
-                return $Rep   
-            } else {
-                return ConvertFrom-JSON($Rep)
-            }
+    }
+    if ($Rep) {
+        if ($raw) {
+            return $Rep
+        } else {
+            return ConvertFrom-JSON($Rep)
         }
     }
 }
