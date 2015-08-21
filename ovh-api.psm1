@@ -2,7 +2,9 @@
 # 
 # 2013-10 Ghozlane TOUMI g.toumi@gmail.com 
 # This file is released under GPL v2
-
+# 2015-08 changed API calls to be more powershell like
+#
+# Note: only one api credential at a time
 
 <#
   OVH API query 
@@ -17,22 +19,24 @@ import-module ovh-api.psm1
 # first, create app key and app secret  : see https://eu.api.ovh.com/createApp/
 ## API credentials : 
 
-Init-Api -ak '<ak>' -as '<as>' -ck 'fake ck'
-Get-Credential
+Connect-OvhApi -ak '<ak>' -as '<as>' -ck 'fake ck'
+Get-OvhApiCredential
 
 ## API access (returns Powershell objects)
-Init-Api -ak '<ak>' -as '<as>' -ck '<ck>'
-Query-Api -query "/cloud"
-Query-Api -method PUT -query "/cloud/..." -body "{ nice : json }"
-# shortcut
-Query-Api GET /cloud
+Connect-OvhApi -ak '<ak>' -as '<as>' -ck '<ck>'
+Invoke-OvhApi -query "/cloud"
+Invoke-OvhApi -method PUT -query "/cloud/..." -body "{ nice : json }"
+
+# shortcuts
+Invoke-OvhApi GET /cloud
+Get-OvhApi /cloud
 
 # raw json
-Query-Api -method GET -query "/cloud" -raw
+Invoke-OvhApi -method GET -query "/cloud" -raw
 
 # more complex :
 # get servers, extracts logical and physical data
-query-api get /dedicated/server | %{ query-api get /dedicated/server/$_ } | select name, reverse, datacenter, rack 
+Get-OvhApi /dedicated/server | %{ get-OvhApi /dedicated/server/$_ } | select name, reverse, datacenter, rack 
 
 #>
 
@@ -57,7 +61,7 @@ import-module ./ConvertFrom-JSON.psm1
 [string] $api='https://eu.api.ovh.com/1.0'
 
 
-function Init-Api {
+function Connect-OvhApi {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory=$True)]
@@ -75,7 +79,7 @@ function Init-Api {
         [string]
             $ApiBaseUrl = $null
     )
-    Write-Verbose "Init-Api"
+    Write-Verbose "Connect-OvhApi"
     $script:ak=$ApplicationKey
     $script:as=$ApplicationSecret
     $script:ck=$ConsumerKey
@@ -85,7 +89,7 @@ function Init-Api {
 }
 
 
-function Get-OvhSignature {
+function Get-OvhApiSignature {
     [CmdletBinding()]
     param (
         [string]
@@ -103,7 +107,7 @@ function Get-OvhSignature {
     $hash = $sha1.ComputeHash([Text.Encoding]::ASCII.GetBytes($key))
     $hexhash= [String]::join("", ($hash | %{ $_.toString('x2') }) )
 
-    Write-Debug "get-OVHSignature : $key -> hexhash"
+    Write-Debug "Get-OvhApiSignature : $key -> hexhash"
     # "$1$" + SHA1_HEX(AS+"+"+CK+"+"+METHOD+"+"+QUERY+"+"+BODY +"+"+TSTAMP)
 
     return "`$1`$$hexhash"
@@ -112,18 +116,18 @@ function Get-OvhSignature {
 
 # get time from ovh API standpoint.
 # caches the delta
-function Get-OvhTime {
+function Get-OvhApiTime {
     [CmdletBinding()]
     param ( )
     # get unixtime with UTC!
     $now =  [int][double]::Parse((Get-Date  -Date (get-date).touniversaltime() -u %s))
     if(!$script:timestampDelta) {
-        Write-Verbose "get-OvhTime : query API Time"
+        Write-Verbose "Get-OvhApiTime : query API Time"
         $Req = [System.Net.WebRequest]::create($script:api+"/auth/time")
         $Req.method="GET";
     
         $rs = $Req.GetResponse().GetResponseStream()
-        Write-Verbose "get-OvhTime : got API Time"
+        Write-Verbose "Get-OvhApiTime : got API Time"
 
         $sr =  New-Object System.IO.StreamReader($rs)
         
@@ -133,14 +137,14 @@ function Get-OvhTime {
         $rs.close()
         $script:timestampDelta= $now - [int]::Parse($Rep)
     } else {
-        Write-Verbose "get-OvhTime : from cache"
+        Write-Verbose "Get-OvhApiTime : from cache"
     }
-    Write-Verbose "get-OvhTime : timestampDelta : $script:timestampDelta"
+    Write-Verbose "Get-OvhApiTime : timestampDelta : $script:timestampDelta"
     return $now-$script:timestampDelta
 }
 
 
-function Query-Api {
+function Invoke-OvhApi {
      param (
         [ValidateSet('GET', 'POST', 'DELETE', 'PUT', IgnoreCase = $true)]
         [Parameter(Position=0)]
@@ -155,14 +159,14 @@ function Query-Api {
             $raw
     )
     $method=$method.ToUpper()
-    Write-Verbose "Query-Api : $method $query"
+    Write-Verbose "Invoke-OvhApi : $method $query"
     if (-not ( $script:ck -and  $script:ak -and $script:as )) {
-        write-Error "Query-Api :no credentials defined, please run init-api First"
+        write-Error "Invoke-OvhApi :no credentials defined, please run Connect-OvhApi First"
         return
     }
     $url=$script:api+$query
-    $timestamp=Get-OvhTime
-    $signature=Get-OvhSignature -method $method -query $url -body $body -timestamp $timestamp
+    $timestamp=Get-OvhApiTime
+    $signature=Get-OvhApiSignature -method $method -query $url -body $body -timestamp $timestamp
         
     try { 
         $Req = [System.Net.WebRequest]::create($url)
@@ -181,13 +185,13 @@ function Query-Api {
         }
           
         $rs = $Req.GetResponse().GetResponseStream()
-        Write-Verbose "Query-Api : done"
+        Write-Verbose "Invoke-OvhApi : done"
         $sr =  New-Object System.IO.StreamReader($rs)
         
         $Rep=$sr.ReadToEnd()
     }
     catch {
-         Write-Host "Query-Api : $method $query"
+         Write-Host "Invoke-OvhApi : $method $query"
          Write-Error $_
     }
     finally {
@@ -207,15 +211,65 @@ function Query-Api {
     }
 }
 
+function Get-OvhApi {
+     param (
+        [Parameter(Mandatory=$True, Position=0)]
+        [string]
+            $query,
+        [switch]
+            $raw
+    )
+    Invoke-OvhApi -method GET -query:$query -raw:$raw
+}
+
+function Set-OvhApi {
+     param (
+        [Parameter(Mandatory=$True, Position=0)]
+        [string]
+            $query,
+        [Parameter(Mandatory=$True)]
+        [string]
+            $body,
+        [switch]
+            $raw
+    )
+    Invoke-OvhApi -method POST -query:$query -body:$body -raw:$raw
+}
+
+function New-OvhApi {
+     param (
+        [Parameter(Mandatory=$True, Position=0)]
+        [string]
+            $query,
+        [Parameter(Mandatory=$True)]
+        [string]
+            $body,
+        [switch]
+            $raw
+    )
+    Invoke-OvhApi -method PUT -query:$query -body:$body -raw:$raw
+}
+
+function Remove-OvhApi {
+     param (
+        [Parameter(Mandatory=$True, Position=0)]
+        [string]
+            $query,
+        [switch]
+            $raw
+    )
+    Invoke-OvhApi -method DELETE -query:$query -raw:$raw
+}
+
 #
 # helper independant :  demande un ticket (ck) avec droits et URL de validation #
 # lecture sur /* ici
 # FIXME : 
 #   parametriser les ACL
 #   gerer les erreurs
-#   integrer la ck pour eviter d'avoir a refaire l'init-api...
+#   integrer la ck pour eviter d'avoir a refaire l'Connect-OvhApi...
 
-function Get-Credential {
+function Get-OvhApiCredential {
     $Req = [System.Net.WebRequest]::create($script:api+"/auth/credential")
     $Req.method="POST";
     $Req.Headers.Add("X-Ovh-Application", $script:ak)
@@ -265,4 +319,4 @@ function Get-Credential {
     $Rep
 }
 
-export-modulemember -function Calc-Signature, Init-Api, Query-Api, Get-Credential
+export-modulemember -function  Connect-OvhApi, Get-OvhApiCredential,  Invoke-OvhApi, Get-OvhApi, Set-OvhApi, New-OvhApi, Remove-OvhApi 
