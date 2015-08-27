@@ -42,7 +42,7 @@ Get-OvhApi /dedicated/server | %{ get-OvhApi /dedicated/server/$_ } | select nam
 
 # Powershell V3 has its own ConvertFrom-JSON
 # Powershell 2 needs an external json converter
-if -not (Get-Command ConvertFrom-JSON -errorAction SilentlyContinue)
+if (-not (Get-Command ConvertFrom-JSON -errorAction SilentlyContinue))
 {
     import-module ./ConvertFrom-JSON.psm1
 }
@@ -164,7 +164,7 @@ function Invoke-OvhApi {
     $method=$method.ToUpper()
     Write-Verbose "Invoke-OvhApi : $method $query"
     if (-not ( $script:ck -and  $script:ak -and $script:as )) {
-        write-Error "Invoke-OvhApi :no credentials defined, please run Connect-OvhApi First"
+        write-Error "no credentials defined, please run Connect-OvhApi First"
         return
     }
     $url=$script:api+$query
@@ -194,8 +194,8 @@ function Invoke-OvhApi {
         $Rep=$sr.ReadToEnd()
     }
     catch {
-         Write-Host "Invoke-OvhApi : $method $query"
-         Write-Error $_
+         Write-Error "$method $query"
+         Throw $_
     }
     finally {
         if ($sr) {
