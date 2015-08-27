@@ -148,6 +148,7 @@ function Get-OvhApiTime {
 
 
 function Invoke-OvhApi {
+    [CmdletBinding()]
      param (
         [ValidateSet('GET', 'POST', 'DELETE', 'PUT', IgnoreCase = $true)]
         [Parameter(Position=0)]
@@ -273,20 +274,26 @@ function Remove-OvhApi {
 #   integrer la ck pour eviter d'avoir a refaire l'Connect-OvhApi...
 
 function Get-OvhApiCredential {
-    $Req = [System.Net.WebRequest]::create($script:api+"/auth/credential")
-    $Req.method="POST";
-    $Req.Headers.Add("X-Ovh-Application", $script:ak)
-    $Req.ContentType = 'application/json';
-#
-# RO on everything
-    $q=[Text.Encoding]::ASCII.GetBytes('{
-        "accessRules": [
-            {
-                "method": "GET",
-                "path": "/*"
-            }
-        ]
-    }')
+    [CmdletBinding()]
+     param (
+        [Parameter(Position=0)]
+        [string]
+            $acl = '[ { "method": "GET", "path": "/*" } ]',
+        [switch]
+            $raw
+    )
+    
+    if (-not $script:ak) {
+        write-Error "no App credential defined, please run Connect-OvhApi First"
+        return
+    }
+    try { 
+        $Req = [System.Net.WebRequest]::create($script:api+"/auth/credential")
+        $Req.method="POST";
+        $Req.Headers.Add("X-Ovh-Application", $script:ak)
+        $Req.ContentType = 'application/json';
+    
+        $q=[Text.Encoding]::ASCII.GetBytes( ('{{ "accessRules": {0} }}' ) -f $acl)
 
 ## more complex : RO on /cloud, PUT delete on specific pca 
 #    $q=[Text.Encoding]::ASCII.GetBytes('{
@@ -306,20 +313,37 @@ function Get-OvhApiCredential {
 #        ]
 #    }')
 
-    $dataStream = $Req.GetRequestStream();
-    $datastream.write($q, 0, $q.length)
-    $dataStream.close()
-
+        $dataStream = $Req.GetRequestStream();
+        $datastream.write($q, 0, $q.length)
+        $dataStream.close()
     
-    $rs = $Req.GetResponse().GetResponseStream()
-    $sr =  New-Object System.IO.StreamReader($rs)
-    
-    $Rep=$sr.ReadToEnd()
-    
-    $sr.Close()
-    $rs.close()
-
-    $Rep
+        
+        $rs = $Req.GetResponse().GetResponseStream()
+        $sr =  New-Object System.IO.StreamReader($rs)
+        
+        $Rep=$sr.ReadToEnd()
+    }
+    catch {
+        Write-Error "$acl"
+        Throw $_
+    }
+    finally {
+        if ($sr) {
+            $sr.Close()
+        }
+        if ($rs) {
+            $rs.Close()
+        }
+    }
+    if ($Rep) {
+        if ($raw) {
+            return $Rep
+        } else {
+            $Rep=ConvertFrom-JSON($Rep)
+            write-output $rep.validationUrl
+            write-output $rep.consumerKey
+        }
+    }
 }
 
 export-modulemember -function  Connect-OvhApi, Get-OvhApiCredential,  Invoke-OvhApi, Get-OvhApi, Set-OvhApi, New-OvhApi, Remove-OvhApi 
