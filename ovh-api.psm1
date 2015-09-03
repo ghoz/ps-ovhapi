@@ -189,14 +189,20 @@ function Invoke-OvhApi {
         }
           
         $rs = $Req.GetResponse().GetResponseStream()
-        Write-Verbose "Invoke-OvhApi : done"
         $sr =  New-Object System.IO.StreamReader($rs)
-        
         $Rep=$sr.ReadToEnd()
+        Write-Verbose "Invoke-OvhApi : done"
     }
     catch {
-         Write-Error "$method $query"
-         Throw $_
+        $r=$_.Exception.InnerException.Response
+        if ($r) {
+          $status=[int] $r.statusCode
+          $rs=$r.GetResponseStream()
+          $sr =  New-Object System.IO.StreamReader($rs)
+          $Rep=$sr.ReadToEnd()
+          Throw "Invoke-OvhApi $method $query`nError: $status.`n$Rep"
+        }
+        Throw $_
     }
     finally {
         if ($sr) {
@@ -206,7 +212,7 @@ function Invoke-OvhApi {
             $rs.Close()
         }
     }
-    if ($Rep) {
+    if ($Rep -and $rep -ne "null") {
         if ($raw) {
             return $Rep
         } else {
@@ -237,7 +243,7 @@ function Set-OvhApi {
         [switch]
             $raw
     )
-    Invoke-OvhApi -method POST -query:$query -body:$body -raw:$raw
+    Invoke-OvhApi -method PUT -query:$query -body:$body -raw:$raw
 }
 
 function New-OvhApi {
@@ -251,7 +257,7 @@ function New-OvhApi {
         [switch]
             $raw
     )
-    Invoke-OvhApi -method PUT -query:$query -body:$body -raw:$raw
+    Invoke-OvhApi -method POST -query:$query -body:$body -raw:$raw
 }
 
 function Remove-OvhApi {
