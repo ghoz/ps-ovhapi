@@ -36,9 +36,10 @@ Function ConvertFrom-JSON {
     				$script:startStringState = $true
     			}
 
-    			"[a-z0-9A-Z@. /\\_-]" { $c }
-
-    			":" {" " ;$script:valueState = $true}
+    			":" {
+    				if($script:valueState -or $script:arrayState) { ":" }
+    				else { " "; $script:valueState = $true }
+    			}
     			"," {
     				if($script:arrayState) { "," }
     				else { $script:valueState = $false; $script:startStringState = $false }
@@ -46,16 +47,17 @@ Function ConvertFrom-JSON {
     			"\[" { "@("; $script:arrayState = $true }
     			"\]" { ")"; $script:arrayState = $false }
     			"[\t\r\n]" {}
+    			default { $c }
     		}
     	}
     	
     	function parse($target)
     	{
     		$result = ""
-    		ForEach($c in $target.ToCharArray()) {	
+    		ForEach($c in $target.ToCharArray()) {
     			$result += scan-characters $c
     		}
-    		$result 	
+    		$result
     	}
     }
 
